@@ -26,7 +26,7 @@ class AzureDatabaseThreatDetectionPolicyProperties(CartographyNodeProperties):
 
 
 @dataclass(frozen=True)
-class AzureDatabaseThreatDetectionPolicyToSQLDatabaseProperties(
+class AzureDatabaseThreatDetectionPolicyToSQLDatabaseRelProperties(
     CartographyRelProperties
 ):
     lastupdated: PropertyRef = PropertyRef("lastupdated", set_in_kwargs=True)
@@ -41,8 +41,8 @@ class AzureDatabaseThreatDetectionPolicyToSQLDatabaseRel(CartographyRelSchema):
     )
     direction: LinkDirection = LinkDirection.INWARD
     rel_label: str = "CONTAINS"
-    properties: AzureDatabaseThreatDetectionPolicyToSQLDatabaseProperties = (
-        AzureDatabaseThreatDetectionPolicyToSQLDatabaseProperties()
+    properties: AzureDatabaseThreatDetectionPolicyToSQLDatabaseRelProperties = (
+        AzureDatabaseThreatDetectionPolicyToSQLDatabaseRelProperties()
     )
 
 
