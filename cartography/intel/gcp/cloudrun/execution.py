@@ -1,11 +1,14 @@
 import logging
 import re
+from typing import Optional
 
 import neo4j
 from google.api_core.exceptions import PermissionDenied
+from google.auth.credentials import Credentials as GoogleCredentials
 from google.auth.exceptions import DefaultCredentialsError
 from google.auth.exceptions import RefreshError
 from googleapiclient.discovery import Resource
+from googleapiclient.errors import HttpError
 
 from cartography.client.core.tx import load
 from cartography.graph.job import GraphJob
@@ -18,7 +21,10 @@ logger = logging.getLogger(__name__)
 
 @timeit
 def get_executions(
-    client: Resource, project_id: str, location: str = "-"
+    client: Resource,
+    project_id: str,
+    location: str = "-",
+    credentials: Optional[GoogleCredentials] = None,
 ) -> list[dict]:
     """
     Gets GCP Cloud Run Executions for a project and location.
@@ -33,53 +39,69 @@ def get_executions(
         # Determine which locations to query
         if location == "-":
             # Discover all Cloud Run locations for this project
-            locations = discover_cloud_run_locations(client, project_id)
+            locations = discover_cloud_run_locations(
+                client,
+                project_id,
+                credentials=credentials,
+            )
         else:
             # Query specific location
             locations = {f"projects/{project_id}/locations/{location}"}
 
         # For each location, get jobs and their executions
         for loc_name in locations:
-            # Get all jobs in this location
-            jobs_request = client.projects().locations().jobs().list(parent=loc_name)
-            while jobs_request is not None:
-                jobs_response = jobs_request.execute()
-                jobs = jobs_response.get("jobs", [])
+            try:
+                # Get all jobs in this location
+                jobs_request = (
+                    client.projects().locations().jobs().list(parent=loc_name)
+                )
+                while jobs_request is not None:
+                    jobs_response = jobs_request.execute()
+                    jobs = jobs_response.get("jobs", [])
 
-                # For each job, get its executions
-                for job in jobs:
-                    job_name = job.get("name", "")
-                    executions_request = (
-                        client.projects()
-                        .locations()
-                        .jobs()
-                        .executions()
-                        .list(parent=job_name)
-                    )
-
-                    while executions_request is not None:
-                        executions_response = executions_request.execute()
-                        executions.extend(executions_response.get("executions", []))
+                    # For each job, get its executions
+                    for job in jobs:
+                        job_name = job.get("name", "")
                         executions_request = (
                             client.projects()
                             .locations()
                             .jobs()
                             .executions()
-                            .list_next(
-                                previous_request=executions_request,
-                                previous_response=executions_response,
-                            )
+                            .list(parent=job_name)
                         )
 
-                jobs_request = (
-                    client.projects()
-                    .locations()
-                    .jobs()
-                    .list_next(
-                        previous_request=jobs_request,
-                        previous_response=jobs_response,
+                        while executions_request is not None:
+                            executions_response = executions_request.execute()
+                            executions.extend(executions_response.get("executions", []))
+                            executions_request = (
+                                client.projects()
+                                .locations()
+                                .jobs()
+                                .executions()
+                                .list_next(
+                                    previous_request=executions_request,
+                                    previous_response=executions_response,
+                                )
+                            )
+
+                    jobs_request = (
+                        client.projects()
+                        .locations()
+                        .jobs()
+                        .list_next(
+                            previous_request=jobs_request,
+                            previous_response=jobs_response,
+                        )
                     )
-                )
+            except HttpError as e:
+                # Only skip 403 permission errors (e.g., restricted regions)
+                # Re-raise other errors (429, 500, etc.) to surface systemic failures
+                if e.resp.status == 403:
+                    logger.warning(
+                        f"Permission denied listing Cloud Run jobs/executions in {loc_name}. Skipping location.",
+                    )
+                    continue
+                raise
 
         return executions
     except (PermissionDenied, DefaultCredentialsError, RefreshError) as e:
@@ -172,12 +194,13 @@ def sync_executions(
     project_id: str,
     update_tag: int,
     common_job_parameters: dict,
+    credentials: Optional[GoogleCredentials] = None,
 ) -> None:
     """
     Syncs GCP Cloud Run Executions for a project.
     """
     logger.info(f"Syncing Cloud Run Executions for project {project_id}.")
-    executions_raw = get_executions(client, project_id)
+    executions_raw = get_executions(client, project_id, credentials=credentials)
     if not executions_raw:
         logger.info(f"No Cloud Run executions found for project {project_id}.")
 

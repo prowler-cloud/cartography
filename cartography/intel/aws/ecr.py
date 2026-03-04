@@ -9,6 +9,7 @@ import neo4j
 
 from cartography.client.core.tx import load
 from cartography.graph.job import GraphJob
+from cartography.models.aws.ecr.image import ECRImageBaseSchema
 from cartography.models.aws.ecr.image import ECRImageSchema
 from cartography.models.aws.ecr.repository import ECRRepositorySchema
 from cartography.models.aws.ecr.repository_image import ECRRepositoryImageSchema
@@ -24,6 +25,9 @@ MANIFEST_LIST_MEDIA_TYPES = {
     "application/vnd.docker.distribution.manifest.list.v2+json",
     "application/vnd.oci.image.index.v1+json",
 }
+
+
+REPO_BATCH_SIZE = 100
 
 
 @timeit
@@ -324,7 +328,7 @@ def load_ecr_repository_images(
 
     load(
         neo4j_session,
-        ECRImageSchema(),
+        ECRImageBaseSchema(),
         ecr_images_list,
         lastupdated=aws_update_tag,
         Region=region,
@@ -377,7 +381,9 @@ def _get_image_data(
 
     # Sort repositories by name to ensure consistent processing order
     sorted_repos = sorted(repositories, key=lambda x: x["repositoryName"])
-    to_synchronous(*[async_get_images(repo) for repo in sorted_repos])
+    for i in range(0, len(sorted_repos), REPO_BATCH_SIZE):
+        batch = sorted_repos[i : i + REPO_BATCH_SIZE]
+        to_synchronous(*[async_get_images(repo) for repo in batch])
 
     return image_data
 

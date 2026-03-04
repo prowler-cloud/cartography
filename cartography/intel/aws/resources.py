@@ -51,6 +51,7 @@ from .ec2.instances import sync_ec2_instances
 from .ec2.internet_gateways import sync_internet_gateways
 from .ec2.key_pairs import sync_ec2_key_pairs
 from .ec2.launch_templates import sync_ec2_launch_templates
+from .ec2.load_balancer_v2s import sync_load_balancer_v2_expose
 from .ec2.load_balancer_v2s import sync_load_balancer_v2s
 from .ec2.load_balancers import sync_load_balancers
 from .ec2.network_acls import sync_network_acls
@@ -75,6 +76,9 @@ RESOURCE_FUNCTIONS: OrderedDict[str, Callable[..., None]] = OrderedDict(
         "iam": iam.sync,
         "iaminstanceprofiles": sync_iam_instance_profiles,
         "s3": s3.sync,
+        # `kms` must run before `dynamodb` since DynamoDB SSE KMS encryption creates
+        # relationships to existing KMSKey nodes using KMSMasterKeyArn.
+        "kms": kms.sync,
         "dynamodb": dynamodb.sync,
         "ec2:launch_templates": sync_ec2_launch_templates,
         "ec2:autoscalinggroup": sync_ec2_auto_scaling_groups,
@@ -90,6 +94,9 @@ RESOURCE_FUNCTIONS: OrderedDict[str, Callable[..., None]] = OrderedDict(
         "ec2:load_balancer_v2": sync_load_balancer_v2s,
         "ec2:network_acls": sync_network_acls,
         "ec2:network_interface": sync_network_interfaces,
+        # `ec2:load_balancer_v2:expose` must run after `ec2:network_interface` so that
+        # EC2PrivateIp nodes exist when IP target MatchLinks are created.
+        "ec2:load_balancer_v2:expose": sync_load_balancer_v2_expose,
         "ec2:security_group": sync_ec2_security_groupinfo,
         "ec2:tgw": sync_transit_gateways,
         "ec2:vpc": sync_vpc,
@@ -104,13 +111,14 @@ RESOURCE_FUNCTIONS: OrderedDict[str, Callable[..., None]] = OrderedDict(
         "ec2:snapshots": sync_ebs_snapshots,
         "ecr": ecr.sync,
         "ecr:image_layers": ecr_image_layers.sync,
+        # `ec2:instance` must be synced before `ecs` so that EC2Instance nodes exist
+        # when ECSContainerInstance creates IS_INSTANCE relationships.
         "ecs": ecs.sync,
         "eks": eks.sync,
         "elasticache": elasticache.sync,
         "elastic_ip_addresses": sync_elastic_ip_addresses,
         "emr": emr.sync,
         "lambda_function": lambda_function.sync,
-        "kms": kms.sync,
         "rds": rds.sync,
         "redshift": redshift.sync,
         "route53": route53.sync,
